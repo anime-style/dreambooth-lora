@@ -1423,5 +1423,8 @@ def main(args):
 
 
 if __name__ == "__main__":
+    # Disable xla bc its incompatible with pytorch accelerate.
+    # the accelerate library does not support XLA for PyTorch models.
+    os.environ["TF_CONFIG"] = '{"xla_enabled": False}'
     args = parse_args()
     main(args)
