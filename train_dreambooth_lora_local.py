@@ -684,7 +684,7 @@ def main(args):
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
-        device_type="cuda"
+        # device_type="cuda"
     )
 
     if args.report_to == "wandb":
