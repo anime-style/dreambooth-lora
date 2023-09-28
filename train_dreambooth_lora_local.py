@@ -115,11 +115,12 @@ LoRA for the text encoder was enabled: {train_text_encoder}.
         f.write(yaml + model_card)
 
 
-def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str):
+def import_model_class_from_model_name_or_path(pretrained_model_name_or_path: str, revision: str, cache_dir: str):
     text_encoder_config = PretrainedConfig.from_pretrained(
         pretrained_model_name_or_path,
         subfolder="text_encoder",
         revision=revision,
+        cache_dir=cache_dir
     )
     model_class = text_encoder_config.architectures[0]
 
@@ -447,6 +448,13 @@ def parse_args(input_args=None):
         default=4,
         help=("The dimension of the LoRA update matrices."),
     )
+    # Custom arguing for passing to everything with .pretrained
+    parser.add_argument(
+        "--cache_dir",
+        type=str,
+        default=None,
+        help=("Cached directory for pretrained or path models passed to unet, vae, and tokenizer.")
+    )
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -685,7 +693,9 @@ def main(args):
         log_with=args.report_to,
         project_config=accelerator_project_config,
         # device_type="cuda"
+        # device="cude{}".format(torch.cuda.current_device())
     )
+    print("Accelerator using device: ", accelerator.device)
 
     if args.report_to == "wandb":
         if not is_wandb_available():
@@ -739,7 +749,7 @@ def main(args):
                 torch_dtype=torch_dtype,
                 safety_checker=None,
                 revision=args.revision,
-                # local_files_only=True,
+                cache_dir=args.cache_dir
             )
             pipeline.set_progress_bar_config(disable=True)
 
@@ -778,26 +788,30 @@ def main(args):
 
     # Load the tokenizer
     if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, revision=args.revision, use_fast=False)
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name,
+                                                  revision=args.revision,
+                                                  use_fast=False,
+                                                  cache_dir=args.cache_dir)
     elif args.pretrained_model_name_or_path:
         tokenizer = AutoTokenizer.from_pretrained(
             args.pretrained_model_name_or_path,
             subfolder="tokenizer",
             revision=args.revision,
             use_fast=False,
+            cache_dir=args.cache_dir
         )
 
     # import correct text encoder class
-    text_encoder_cls = import_model_class_from_model_name_or_path(args.pretrained_model_name_or_path, args.revision)
+    text_encoder_cls = import_model_class_from_model_name_or_path(args.pretrained_model_name_or_path, args.revision, args.cache_dir)
 
     # Load scheduler and models
-    noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler", cache_dir=args.cache_dir)
     text_encoder = text_encoder_cls.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision
+        args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, cache_dir=args.cache_dir
     )
     try:
         vae = AutoencoderKL.from_pretrained(
-            args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision
+            args.pretrained_model_name_or_path, subfolder="vae", revision=args.revision, cache_dir=args.cache_dir
         )
     except OSError:
         # IF does not have a VAE so let's just set it to None
@@ -805,7 +819,7 @@ def main(args):
         vae = None
 
     unet = UNet2DConditionModel.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision
+        args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, cache_dir=args.cache_dir
     )
 
     # We only train the additional adapter LoRA layers
@@ -1274,6 +1288,7 @@ def main(args):
                     text_encoder=None if args.pre_compute_text_embeddings else accelerator.unwrap_model(text_encoder),
                     revision=args.revision,
                     torch_dtype=weight_dtype,
+                    cache_dir=args.cache_dir
                 )
 
                 # We train on the simplified learning objective. If we were previously predicting a variance, we need the scheduler to ignore it
@@ -1358,7 +1373,7 @@ def main(args):
         # Final inference
         # Load previous pipeline
         pipeline = DiffusionPipeline.from_pretrained(
-            args.pretrained_model_name_or_path, revision=args.revision, torch_dtype=weight_dtype
+            args.pretrained_model_name_or_path, revision=args.revision, torch_dtype=weight_dtype, cache_dir=args.cache_dir
         )
 
         # We train on the simplified learning objective. If we were previously predicting a variance, we need the scheduler to ignore it
